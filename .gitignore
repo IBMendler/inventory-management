@@ -51,5 +51,13 @@ logs/
 # Playwright MCP artifacts
 .playwright-mcp/
 
-# Environment variables
+# Environment variables and credentials
 .env
+.env.*
+!.env.example
+.git-credentials
+.netrc
+*.pem
+*.key
+*.token
+.claude/settings.local.json
