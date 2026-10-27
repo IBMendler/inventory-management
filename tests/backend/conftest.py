@@ -12,6 +12,15 @@ server_path = Path(__file__).parent.parent.parent / "server"
 sys.path.insert(0, str(server_path))
 
 from main import app
+from mock_data import submitted_orders
+
+
+@pytest.fixture(autouse=True)
+def clear_submitted_orders():
+    """Submitted restocking orders are in-memory and shared across tests; reset around each one."""
+    submitted_orders.clear()
+    yield
+    submitted_orders.clear()
 
 
 @pytest.fixture

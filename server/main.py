@@ -1,10 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
-from pydantic import BaseModel
-from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
+from datetime import datetime, timedelta
+from pydantic import BaseModel, Field
+from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders, submitted_orders
 
 app = FastAPI(title="Factory Inventory Management System")
+
+# Used when an inventory record has no lead_time_days
+DEFAULT_LEAD_TIME_DAYS = 7
 
 # Quarter mapping for date filtering
 QUARTER_MAP = {
@@ -67,6 +71,7 @@ class InventoryItem(BaseModel):
     unit_cost: float
     location: str
     last_updated: str
+    lead_time_days: Optional[int] = None
 
 class Order(BaseModel):
     id: str
@@ -119,6 +124,42 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockCandidate(BaseModel):
+    sku: str
+    name: str
+    forecasted_demand: int
+    quantity_on_hand: int
+    shortfall: int
+    unit_cost: float
+    lead_time_days: int
+    total_cost: float
+
+class RestockOrderItem(BaseModel):
+    sku: str
+    quantity: int = Field(gt=0)
+
+class CreateRestockOrderRequest(BaseModel):
+    items: List[RestockOrderItem] = Field(min_length=1)
+    budget: float = Field(ge=0)
+
+class SubmittedOrderLine(BaseModel):
+    sku: str
+    name: str
+    quantity: int
+    unit_cost: float
+    lead_time_days: int
+
+class SubmittedOrder(BaseModel):
+    id: str
+    order_number: str
+    items: List[SubmittedOrderLine]
+    status: str
+    order_date: str
+    expected_delivery: str
+    lead_time_days: int
+    total_value: float
+    budget: float
 
 # API endpoints
 @app.get("/")
@@ -303,6 +344,88 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+def build_restock_candidates(warehouse: Optional[str] = None, category: Optional[str] = None) -> list:
+    """Join demand forecasts to (optionally filtered) inventory and return items with a shortfall, largest first"""
+    stock = apply_filters(inventory_items, warehouse, category)
+    candidates = []
+    for forecast in demand_forecasts:
+        records = [i for i in stock if i["sku"] == forecast["item_sku"]]
+        if not records:
+            continue
+        on_hand = sum(r["quantity_on_hand"] for r in records)
+        shortfall = forecast["forecasted_demand"] - on_hand
+        if shortfall <= 0:
+            continue
+        unit_cost = records[0]["unit_cost"]
+        candidates.append({
+            "sku": forecast["item_sku"],
+            "name": forecast["item_name"],
+            "forecasted_demand": forecast["forecasted_demand"],
+            "quantity_on_hand": on_hand,
+            "shortfall": shortfall,
+            "unit_cost": unit_cost,
+            "lead_time_days": records[0].get("lead_time_days") or DEFAULT_LEAD_TIME_DAYS,
+            "total_cost": round(shortfall * unit_cost, 2),
+        })
+    return sorted(candidates, key=lambda c: c["shortfall"], reverse=True)
+
+@app.get("/api/restocking/candidates", response_model=List[RestockCandidate])
+def get_restocking_candidates(
+    warehouse: Optional[str] = None,
+    category: Optional[str] = None
+):
+    """Get forecasted items that are short on stock, largest shortfall first. Filters: warehouse, category"""
+    return build_restock_candidates(warehouse, category)
+
+@app.post("/api/restocking/orders", response_model=SubmittedOrder, status_code=201)
+def create_restocking_order(request: CreateRestockOrderRequest):
+    """Submit a restocking order. Costs are computed server-side from inventory unit costs."""
+    skus = [item.sku for item in request.items]
+    if len(set(skus)) != len(skus):
+        raise HTTPException(status_code=400, detail="Duplicate SKU in order")
+
+    lines = []
+    for item in request.items:
+        record = next((i for i in inventory_items if i["sku"] == item.sku), None)
+        if not record:
+            raise HTTPException(status_code=400, detail=f"Unknown SKU {item.sku}")
+        lines.append({
+            "sku": item.sku,
+            "name": record["name"],
+            "quantity": item.quantity,
+            "unit_cost": record["unit_cost"],
+            "lead_time_days": record.get("lead_time_days") or DEFAULT_LEAD_TIME_DAYS,
+        })
+
+    total = round(sum(l["quantity"] * l["unit_cost"] for l in lines), 2)
+    if total > request.budget:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order total {total:.2f} exceeds budget {request.budget:.2f}"
+        )
+
+    now = datetime.now()
+    lead_time = max(l["lead_time_days"] for l in lines)
+    sequence = len(submitted_orders) + 1
+    order = {
+        "id": str(sequence),
+        "order_number": f"RST-{now.year}-{sequence:04d}",
+        "items": lines,
+        "status": "Submitted",
+        "order_date": now.isoformat(timespec="seconds"),
+        "expected_delivery": (now + timedelta(days=lead_time)).isoformat(timespec="seconds"),
+        "lead_time_days": lead_time,
+        "total_value": total,
+        "budget": request.budget,
+    }
+    submitted_orders.append(order)
+    return order
+
+@app.get("/api/restocking/orders", response_model=List[SubmittedOrder])
+def get_submitted_orders():
+    """Get submitted restocking orders, newest first"""
+    return list(reversed(submitted_orders))
 
 if __name__ == "__main__":
     import uvicorn

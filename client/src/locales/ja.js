@@ -6,6 +6,7 @@ export default {
     orders: '注文',
     finance: '財務',
     demandForecast: '需要予測',
+    restocking: '補充発注',
     companyName: '触媒コンポーネンツ',
     subtitle: '在庫管理システム'
   },
@@ -126,7 +127,48 @@ export default {
       status: 'ステータス',
       expectedDelivery: '予定配達日',
       actualDelivery: '実際の配達日'
-    }
+    },
+    submittedTitle: '発注済み注文',
+    submittedEmpty: '発注済みの補充注文はまだありません',
+    submittedLoadError: '発注済み注文の読み込みに失敗しました',
+    submittedLeadTime: 'リードタイム（日）',
+    submittedDays: '{days}日',
+    submittedExpectedDelivery: '予定配達日',
+    submittedDate: '発注日',
+    submittedItems: '{count}件'
+  },
+
+  // Restocking
+  restocking: {
+    title: '補充発注',
+    subtitle: '予算を設定し、需要予測に基づく推奨品目を選択して発注します',
+    budget: '予算',
+    candidates: '候補',
+    selectable: '選択可能',
+    suggested: '提案',
+    overBudget: '予算超過',
+    select: '選択',
+    empty: '補充候補はありません',
+    columns: {
+      item: 'SKU / 名称',
+      forecastedDemand: '予測需要',
+      onHand: '在庫数',
+      shortfall: '不足数',
+      unitCost: '単価',
+      totalCost: '合計コスト',
+      leadTime: 'リードタイム（日）'
+    },
+    stats: {
+      selected: '選択品目数',
+      selectedTotal: '選択合計',
+      remaining: '残りの予算',
+      longestLead: '最長リードタイム'
+    },
+    days: '{days}日',
+    placeOrder: '発注する',
+    placing: '発注中...',
+    success: '注文 {orderNumber} を受け付けました。リードタイム: {days}日',
+    error: '発注に失敗しました'
   },
 
   // Finance/Spending

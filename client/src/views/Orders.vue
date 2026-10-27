@@ -74,6 +74,44 @@
           </table>
         </div>
       </div>
+
+      <div class="card submitted-card">
+        <div class="card-header">
+          <h3 class="card-title">{{ t('orders.submittedTitle') }} ({{ submittedOrders.length }})</h3>
+        </div>
+        <div v-if="submittedError" class="inline-message">{{ submittedError }}</div>
+        <div v-else-if="submittedOrders.length === 0" class="inline-message">{{ t('orders.submittedEmpty') }}</div>
+        <div v-else class="table-container">
+          <table class="orders-table">
+            <thead>
+              <tr>
+                <th class="col-order-number">{{ t('orders.table.orderNumber') }}</th>
+                <th class="col-sub-items">{{ t('orders.table.items') }}</th>
+                <th class="col-value">{{ t('orders.table.totalValue') }}</th>
+                <th class="col-date">{{ t('orders.submittedDate') }}</th>
+                <th class="col-lead">{{ t('orders.submittedLeadTime') }}</th>
+                <th class="col-date">{{ t('orders.submittedExpectedDelivery') }}</th>
+                <th class="col-status">{{ t('orders.table.status') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="order in submittedOrders" :key="order.id">
+                <td class="col-order-number"><strong>{{ order.order_number }}</strong></td>
+                <td class="col-sub-items" :title="order.items.map(i => i.sku).join(', ')">
+                  {{ t('orders.submittedItems', { count: order.items.length }) }}
+                </td>
+                <td class="col-value"><strong>{{ formatCurrencyWithDecimals(order.total_value, currentCurrency, 2) }}</strong></td>
+                <td class="col-date">{{ formatDate(order.order_date) }}</td>
+                <td class="col-lead">{{ t('orders.submittedDays', { days: order.lead_time_days }) }}</td>
+                <td class="col-date">{{ formatDate(order.expected_delivery) }}</td>
+                <td class="col-status">
+                  <span :class="['badge', getSubmittedStatusClass(order.status)]">{{ order.status }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -83,6 +121,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { api } from '../api'
 import { useFilters } from '../composables/useFilters'
 import { useI18n } from '../composables/useI18n'
+import { formatCurrencyWithDecimals } from '../utils/currency'
 
 export default {
   name: 'Orders',
@@ -95,6 +134,8 @@ export default {
     const loading = ref(true)
     const error = ref(null)
     const orders = ref([])
+    const submittedOrders = ref([])
+    const submittedError = ref(null)
 
     // Use shared filters
     const {
@@ -122,6 +163,22 @@ export default {
       } finally {
         loading.value = false
       }
+    }
+
+    // Submitted restocking orders: unfiltered, failure must not break the main table
+    const loadSubmittedOrders = async () => {
+      try {
+        submittedError.value = null
+        submittedOrders.value = await api.getSubmittedOrders()
+      } catch (err) {
+        console.error('Failed to load submitted orders:', err)
+        submittedError.value = t('orders.submittedLoadError')
+      }
+    }
+
+    const getSubmittedStatusClass = (status) => {
+      const map = { Delivered: 'success', Shipped: 'info', Processing: 'warning', Backordered: 'danger' }
+      return map[status] || 'info'
     }
 
     // Watch for filter changes and reload data
@@ -153,7 +210,10 @@ export default {
       })
     }
 
-    onMounted(loadOrders)
+    onMounted(() => {
+      loadOrders()
+      loadSubmittedOrders()
+    })
 
     return {
       t,
@@ -164,6 +224,11 @@ export default {
       getOrderStatusClass,
       formatDate,
       currencySymbol,
+      currentCurrency,
+      submittedOrders,
+      submittedError,
+      getSubmittedStatusClass,
+      formatCurrencyWithDecimals,
       translateProductName,
       translateCustomerName
     }
@@ -201,6 +266,24 @@ export default {
 
 .col-value {
   width: 120px;
+}
+
+.col-sub-items {
+  width: 120px;
+}
+
+.col-lead {
+  width: 130px;
+}
+
+.submitted-card {
+  margin-top: 1.5rem;
+}
+
+.inline-message {
+  padding: 1rem 1.5rem;
+  font-size: 0.875rem;
+  color: #64748b;
 }
 
 /* Items details styling */
